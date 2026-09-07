@@ -142,6 +142,39 @@ def get_nearby_hospitals(predicted_disease, user_lat, user_lon, limit=3):
     results.sort(key=lambda x: (not x['relevant'], x['distance']))
     return results[:limit]
 
+URGENCY_LEVELS = {
+    'Heart attack': 'Critical',
+    'Paralysis (brain hemorrhage)': 'Critical',
+    'AIDS': 'Critical',
+
+    'Dengue': 'High', 'Typhoid': 'High', 'Malaria': 'High',
+    'Pneumonia': 'High', 'Tuberculosis': 'High',
+    'Hepatitis B': 'High', 'Hepatitis C': 'High', 'Hepatitis D': 'High', 'Hepatitis E': 'High',
+    'Alcoholic hepatitis': 'High', 'Jaundice': 'High',
+    '(vertigo) Paroymsal  Positional Vertigo': 'High',
+
+    'Diabetes': 'Moderate', 'Hypertension': 'Moderate',
+    'Bronchial Asthma': 'Moderate', 'hepatitis A': 'Moderate',
+    'Chronic cholestasis': 'Moderate', 'Migraine': 'Moderate',
+    'Arthritis': 'Moderate', 'Osteoarthristis': 'Moderate',
+    'Cervical spondylosis': 'Moderate', 'Urinary tract infection': 'Moderate',
+    'Hyperthyroidism': 'Moderate', 'Hypothyroidism': 'Moderate', 'Hypoglycemia': 'Moderate',
+    'Peptic ulcer diseae': 'Moderate', 'GERD': 'Moderate',
+    'Gastroenteritis': 'Moderate', 'Dimorphic hemmorhoids(piles)': 'Moderate',
+    'Varicose veins': 'Moderate',
+
+    'Common Cold': 'Low', 'Allergy': 'Low', 'Acne': 'Low',
+    'Fungal infection': 'Low', 'Impetigo': 'Low', 'Psoriasis': 'Low',
+    'Drug Reaction': 'Low', 'Chicken pox': 'Low',
+}
+
+def get_urgency(predicted_disease, confidence):
+    level = URGENCY_LEVELS.get(predicted_disease, 'Moderate')
+    if confidence < 50 and level == 'Low':
+        level = 'Moderate'
+    elif confidence < 50 and level == 'Moderate':
+        level = 'High'
+    return level
 
 def home(request):
     return render(request, 'home.html')
@@ -216,19 +249,7 @@ def predict(request):
         image_file = DISEASE_IMAGES.get(prediction, None)
 
         # Determine urgency
-        URGENT_DISEASES = {
-            'Heart attack',
-            'Paralysis (brain hemorrhage)',
-            'Pneumonia',
-            'Dengue',
-            'Malaria'
-        }
-
-        urgency = (
-            'High'
-            if prediction in URGENT_DISEASES
-            else 'Normal'
-        )
+        urgency = get_urgency(prediction, confidence)
 
         # Save prediction
         PatientPrediction.objects.create(
