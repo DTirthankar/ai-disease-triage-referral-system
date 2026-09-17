@@ -187,108 +187,76 @@ def contact(request):
 
 def predict(request):
     result = None
-    confidence = None
-    top3 = []
     image_file = None
+    confidence = None
+    confidence_warning = False
+    top3 = []
+    xai_symptoms = []
     selected_symptoms = []
-    patient_name = ''
-    nearby_hospitals = []
 
     if request.method == 'POST':
-        patient_name = request.POST.get('patient_name', 'Anonymous')
-        patient_age = request.POST.get('patient_age') or None
-        patient_gender = request.POST.get('patient_gender', 'Other')
-
-        # Patient's location
-        user_lat = request.POST.get('latitude')
-        user_lon = request.POST.get('longitude')
-
-        # Get symptoms
         s1 = request.POST.get('symptom1', '')
         s2 = request.POST.get('symptom2', '')
         s3 = request.POST.get('symptom3', '')
         s4 = request.POST.get('symptom4', '')
         s5 = request.POST.get('symptom5', '')
+        selected_symptoms = [s for s in [s1,s2,s3,s4,s5] if s]
 
-        selected_symptoms = [
-            s for s in [s1, s2, s3, s4, s5] if s
-        ]
-
-        # Create feature vector
+        # Build feature vector
         features = np.array(
             [1 if s in selected_symptoms else 0 for s in SYMPTOMS]
         ).reshape(1, -1)
 
         # Prediction
-        probabilities = model.predict_proba(features)[0]
-        classes = model.classes_
+        prediction = model.predict(features)[0].strip()
+        result = prediction
+        image_file = DISEASE_IMAGES.get(prediction, None)
 
-        disease_conf_pairs = sorted(
-            zip(classes, probabilities),
-            key=lambda x: x[1],
+        # Confidence score using predict_proba
+        proba = model.predict_proba(features)[0]
+        classes = model.classes_
+        top_index = proba.argmax()
+        confidence = round(proba[top_index] * 100, 1)
+
+        # Low confidence warning
+        if confidence < 60:
+            confidence_warning = True
+
+        # Top 3 predictions
+        top3_indices = proba.argsort()[-3:][::-1]
+        top3 = [
+            {
+                'disease': classes[i].strip(),
+                'probability': round(proba[i] * 100, 1)
+            }
+            for i in top3_indices
+        ]
+
+        # XAI — which symptoms influenced the result
+        importances = model.feature_importances_
+        symptom_scores = []
+        for i, sym in enumerate(SYMPTOMS):
+            if sym in selected_symptoms:
+                symptom_scores.append({
+                    'symptom': sym.replace('_', ' '),
+                    'score': round(importances[i] * 100, 2)
+                })
+        # Sort by importance descending
+        xai_symptoms = sorted(
+            symptom_scores,
+            key=lambda x: x['score'],
             reverse=True
         )
 
-        top3_raw = disease_conf_pairs[:3]
-
-        prediction = top3_raw[0][0].strip()
-        confidence = round(top3_raw[0][1] * 100, 1)
-        result = prediction
-
-        # Top 3 predictions
-        top3 = [
-            (name.strip(), round(conf * 100, 1))
-            for name, conf in top3_raw
-        ]
-
-        top3_string = '|'.join(
-            f"{name}:{conf}" for name, conf in top3
-        )
-
-        # Disease image
-        image_file = DISEASE_IMAGES.get(prediction, None)
-
-        # Determine urgency
-        urgency = get_urgency(prediction, confidence)
-
-        # Save prediction
-        PatientPrediction.objects.create(
-            patient_name=patient_name,
-            patient_age=patient_age,
-            patient_gender=patient_gender,
-            symptom1=s1,
-            symptom2=s2,
-            symptom3=s3,
-            symptom4=s4,
-            symptom5=s5,
-            predicted_disease=prediction,
-            confidence=confidence,
-            top3_predictions=top3_string,
-            urgency=urgency
-        )
-
-        # Fetch nearby hospitals
-        if user_lat and user_lon:
-            try:
-                nearby_hospitals = get_nearby_hospitals(
-                    prediction,
-                    float(user_lat),
-                    float(user_lon)
-                )
-            except (ValueError, TypeError):
-                nearby_hospitals = []
-
     return render(request, 'predict.html', {
-        'result': result,
-        'confidence': confidence,
-        'top3': top3,
-        'image_file': image_file,
-        'symptoms': SYMPTOMS,
-        'patient_name': patient_name,
-        'nearby_hospitals': nearby_hospitals,
+        'result':             result,
+        'image_file':         image_file,
+        'confidence':         confidence,
+        'confidence_warning': confidence_warning,
+        'top3':               top3,
+        'xai_symptoms':       xai_symptoms,
+        'symptoms':           SYMPTOMS,
     })
-
-
 def history(request):
     predictions = PatientPrediction.objects.all()[:50]
 
